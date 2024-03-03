@@ -329,12 +329,6 @@ for each in query_list:
 for i in tabby.query_scorehandler:    
     print("Query", i[0], ": ", i[1])
 
-calico = tabby.query_scorehandler[15]
-print(calico)
-TEMPC = tabby.query[calico[1][1][1]:calico[1][1][1]+24]
-print(TEMPC)
-print(tabby.reference[calico[1][1][2]:calico[1][1][2]+24])
-
 tabby.seek_allgaps()
 tabby.consolidate_gaps()
 
