@@ -164,8 +164,28 @@ class Matrix():
         print("REFERENCE", ref_slice)
 
         return all_scores
+    
+    def build_table(self):
+        #each entry in the query_scorehandler should look like:
+        # [ query id no, 
+        # [[ref_slice id no, 
+        # [match score (1.0 means perfect match), 
+                # query_slice_start_ind (0 means whole query slice was aligned), 
+                        # ref_slice_start_ind (the pos where the match alignment starts) ]]]
+        
 
+        """ We need to use each query in the scorehandler to "fill the puzzle" 
+            Imagine the reference as a long sequence. Using the markers provided by the scorehandler, 
+            make a table that highlights where the whole query matches the reference. If a query does 
+            not have a perfect 1.0 score, there is a gap present. Could be an intron, could be a 
+            polymorphism. We'll need to investigate deeper for those queries.
+            If a query and its neighbor are not aligned to each other (the end of the query is the start
+            of the neighbor) then there is a gap. Same issue as with those imperfect scores.
 
+        """
+
+        return 0
+    
 
 # MAIN DRIVER
 
@@ -206,6 +226,7 @@ for each in query_list:
     tabby.query_scorehandler.append([each, final_score])
 
 for i in tabby.query_scorehandler:
+    print(i)
     print("Query", i[0], ": ", i[1])
 
 # Handle k slice (last slice)
