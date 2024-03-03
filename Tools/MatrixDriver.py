@@ -213,7 +213,7 @@ class Matrix():
 
         break_start = query_select[1][1][2] + (self.query_window - query_select[1][0])
         break_end = sister_select[1][1][2] - 1
-        print("Q", query_id, "From ", break_start, "to Q", query_id+1, break_end)
+    
         gap_length = int(break_end-break_start)+1
         if gap_length <= 0:
             # ERROR!
@@ -332,5 +332,5 @@ for i in tabby.query_scorehandler:
 tabby.seek_allgaps()
 tabby.consolidate_gaps()
 
-print(tabby.ref_gaps)
+print("\nALL GAPS FOUND:", tabby.ref_gaps)
 # Handle k slice (last slice)
