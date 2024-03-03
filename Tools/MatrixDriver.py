@@ -339,6 +339,4 @@ tabby.seek_allgaps()
 tabby.consolidate_gaps()
 
 print(tabby.ref_gaps)
-#tabby.seek_internalgap(33, 0)
-
 # Handle k slice (last slice)
