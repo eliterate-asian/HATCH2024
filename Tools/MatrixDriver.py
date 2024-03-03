@@ -6,15 +6,19 @@ import matplotlib
 
 class Matrix():
 
-    def __init__(self, ref_seqpath, fas_seqpath) -> None:
+    def __init__(self, ref_seqpath, fas_seqpath, r_win = 2000, q_win = 24) -> None:
         
         self.reference_path = ref_seqpath
         self.query_path = fas_seqpath
         self.reference = ''
         self.query = ''
 
+        self.ref_window = r_win
+        self.query_window = q_win
+
         # default 2000 bases per slice. (EX: 5,000,000 bp ref / 2,000 = 2,500 slices)
-        # The index of a slice is ((slice number - 1) * 2000) - 1
+        # slice handler index = slice id
+        # The index of a slice in the mother is ((slice number - 1) * 2000) - 1
         self.reference_slicehandler = []
 
         # index matches index of slice in slicehandler
@@ -23,6 +27,7 @@ class Matrix():
 
         # default 24 bases per slice
         # slice's position in query string = ((slice number - 1) * 24) - 1
+        # slice id = index, slice value = pos in the mother 
         self.query_slicehandler = []
 
         # index of even value: index of last common. odd: index of starting common.
@@ -77,7 +82,7 @@ class Matrix():
 
         return 0
     
-    def run_slice(self, Rslice, Qslice, threshold):
+    def run_slice(self, Rid, Qid, Rslice, Qslice, threshold):
         score = 0
 
         # Score = X of matches / Total matches
@@ -120,8 +125,8 @@ class Matrix():
             ################
             TEMPA.reverse()
             TEMPB.reverse()
-            print("\n\t", ''.join(TEMPA))
-            print("\t", ''.join(TEMPB))
+            #print("\n\t", ''.join(TEMPA))
+            #print("\t", ''.join(TEMPB))
 
             ################        
             score = matches / count
@@ -134,37 +139,126 @@ class Matrix():
                     else:
                         best_qind = 0
                         best_rind = j - (count - 1)
-                    section_score = [best, best_qind, best_rind]
+                    # final qind = the start pos of the query slice within the query
+                    # final rind = the start pos of the match location with the reference
+                    final_qind = self.query_slicehandler[Qid] + best_qind
+                   
+                    final_rind = self.reference_slicehandler[Rid] + best_rind - 1
+
+                    section_score = [best, final_qind, final_rind]
 
         return section_score
 
     def score_slices(self, refslice_nos, queryslice_no, threshold=18):
 
-        all_scores = []
+        all_scores = [0, [0, 0, 0]]
         
         # fetch the appropriate query slice. Queryslice_no is the id number, not the pos of the slice.
-        query_slice = self.query[self.query_slicehandler[queryslice_no]:self.query_slicehandler[queryslice_no+1]
-                                 ]
+        query_slice = self.query[self.query_slicehandler[queryslice_no]:self.query_slicehandler[queryslice_no+1]]
+
+
         # refslice_nose should be a list of refslice id numbers ex: [0, 1, 2, 3]
         # fetch the appropriate ref slice given the "number id" of the slice wanted. the handler gives the indexes
         for slice in refslice_nos:
-
             ref_slice = self.reference[self.reference_slicehandler[slice]:self.reference_slicehandler[slice+1]]
-            print(ref_slice)
-            result = self.run_slice(ref_slice, query_slice, threshold)
+            result = self.run_slice(slice, queryslice_no, ref_slice, query_slice, threshold)
             if not result:
                 continue
-            elif result[0] > 0.82:
-                all_scores.append([slice, result])
+
+            # And record your best scores
+            elif result[0] > 0.97:
+                all_scores = [slice, result]
                 break
             else:
-                all_scores.append([slice, result])
+                if all_scores[1][0] < result[0]:
+                    all_scores = [slice, result]
 
-        print("QUERY", query_slice)
-        print("REFERENCE", ref_slice)
+        #print("QUERY", query_slice)
+        #print("REFERENCE", ref_slice)
+
 
         return all_scores
     
+
+    # Gaps: [Gap Id, Internal/Sister (0, 1), gap_length,
+            # [gap_start pos on ref (first mismatch), query_start_ind_of_diff]
+                # [0, 0, 25, [964, 125]]
+    def seek_internalgap(self, query_id, gap_id):
+        query_select = self.query_scorehandler[query_id]
+        query_string = self.query[query_select[1][1][1]:query_select[1][1][1]+24]
+        ref_string = self.reference[query_select[1][1][2]:query_select[1][1][2]+24]
+        ref_breaks = []
+        breaks = []
+        for i in range(0, len(query_string)):
+            if query_string[i] == ref_string[i]:
+                if not breaks:
+                    continue
+                else:
+                    ref_breaks.append(breaks)
+                    breaks = []
+            else:
+                breaks.append(i)
+
+        for each in ref_breaks:
+            ref_gap_ind = query_select[1][1][2] + each[-1]
+            query_gap_ind = query_select[1][1][1] + each[-1]
+            self.ref_gaps.append([gap_id, 0, len(each), [ref_gap_ind, query_gap_ind]])
+            gap_id += 1
+
+        return gap_id
+    
+    def seek_sistergap(self, query_id, gap_id):
+        query_select = self.query_scorehandler[query_id]
+        sister_select = self.query_scorehandler[query_id+1]
+
+        break_start = query_select[1][1][2] + (self.query_window - query_select[1][0])
+        break_end = sister_select[1][1][2] - 1
+    
+        gap_length = int(break_end-break_start)+1
+        if gap_length <= 0:
+            # ERROR!
+            return gap_id
+        self.ref_gaps.append([gap_id, 1, gap_length, [break_start, break_end]])
+        gap_id += 1
+
+        return gap_id
+    
+    def seek_allgaps(self):
+        gap_id = 0
+        for query in range(0, len(self.query_scorehandler)-1):
+            if (self.query_scorehandler[query][1][1][0] < 1.0):
+                gap_id = self.seek_internalgap(query, gap_id)
+            if (self.query_scorehandler[query][1][1][2]+24) != self.query_scorehandler[query+1][1][1][2]:
+                gap_id = self.seek_sistergap(query, gap_id)
+                continue
+            else:
+                continue
+
+            
+
+        return
+    
+    def consolidate_gaps(self):
+        groups = []
+        for gap in range(0, len(self.ref_gaps)-1):
+            overlap = self.ref_gaps[gap][3][0] + self.ref_gaps[gap][2]
+            if overlap >= self.ref_gaps[gap+1][3][0]-1:
+                gap_length = (self.ref_gaps[gap+1][3][0] - self.ref_gaps[gap][3][0]) + self.ref_gaps[gap+1][2]
+                grouped_gap = [self.ref_gaps[gap][0], 3, gap_length, [self.ref_gaps[gap][3][0], self.ref_gaps[gap][3][0]+gap_length]]
+                groups.append(grouped_gap)
+        for id in groups:
+            for par in self.ref_gaps:
+               
+                if not par:
+                    continue
+                elif id[0] == par[0]:
+                    self.ref_gaps[self.ref_gaps.index(par)+1] = []
+                    self.ref_gaps[self.ref_gaps.index(par)] = id
+                    break
+        self.ref_gaps.remove([])
+
+        return
+
     def build_table(self):
         #each entry in the query_scorehandler should look like:
         # [ query id no, 
@@ -172,6 +266,7 @@ class Matrix():
         # [match score (1.0 means perfect match), 
                 # query_slice_start_ind (0 means whole query slice was aligned), 
                         # ref_slice_start_ind (the pos where the match alignment starts) ]]]
+        # [0, [[5, [1.0, 0, 515]]]]
         
 
         """ We need to use each query in the scorehandler to "fill the puzzle" 
@@ -181,16 +276,23 @@ class Matrix():
             polymorphism. We'll need to investigate deeper for those queries.
             If a query and its neighbor are not aligned to each other (the end of the query is the start
             of the neighbor) then there is a gap. Same issue as with those imperfect scores.
-
+            -> a gap of larger than like 12 bases is probably not a polymorphism. For this program 
+                we elect to ignore polymorphisms larger than SNPs (1 base)
         """
+
+
 
         return 0
     
-
-# MAIN DRIVER
+######################################################################
+#################         MAIN DRIVER            #####################
+######################################################################
 
 refpath = './Tools/testa.fasta'
 querypath = './Tools/testb.fasta'
+
+
+
 tabby = Matrix(refpath, querypath)
 
 tabby.build_Strings()
@@ -198,21 +300,19 @@ tabby.build_QSlices()
 tabby.build_RSlices()
 
 
-print("\n////////////\n")
-
 totalslices = len(tabby.reference_slicehandler) - 1
 totalqueries = len(tabby.query_slicehandler) - 1
 
 # Handle 0 - k-1 slices
 ref_list = []
 query_list = []
-for i in range(0, (totalslices-2)):
+for i in range(0, (totalslices)):
     # THROTTLE CODE
     #if i >= int(totalslices/4):
     #    break
     ref_list.append(i)
 
-for h in range(0, (totalqueries-1)):
+for h in range(0, (totalqueries)):
     # THROTTLE CODE
     #if i >= int(totalslices/4):
     #    break
@@ -220,13 +320,17 @@ for h in range(0, (totalqueries-1)):
 
 for each in query_list:
     # THROTTLE CODE
-    # if each >= 5:
-    #     break
-    final_score =  tabby.score_slices(ref_list, each)
-    tabby.query_scorehandler.append([each, final_score])
+    # if each >= 20:
+    #    break
+   final_score =  tabby.score_slices(ref_list, each)
+   tabby.query_scorehandler.append([each, final_score])
+   
 
-for i in tabby.query_scorehandler:
-    print(i)
+for i in tabby.query_scorehandler:    
     print("Query", i[0], ": ", i[1])
 
+tabby.seek_allgaps()
+tabby.consolidate_gaps()
+
+print("\nALL GAPS FOUND:", tabby.ref_gaps)
 # Handle k slice (last slice)
